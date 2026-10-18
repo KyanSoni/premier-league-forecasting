@@ -1,0 +1,22 @@
+# local data and outputs: never published
+exports/
+player_data/
+player_data_cache/
+snapshots/
+__pycache__/
+*.backup
+*.csv
+!docs/*.csv
+referees_next.csv
+availability.csv
+slip.csv
+
+# workbooks: the dashboard holds licensed player data
+*.xlsx
+*.xlsm
+!excel/*_clean.xlsx
+~$*
+
+# secrets
+.env
+*.env
