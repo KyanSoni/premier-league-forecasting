@@ -110,6 +110,6 @@ Player props looked consistently 10-25 points cheaper at the bookmaker than in t
 ## What's next
 
 - **Season-end review.** Re-score all of 2026-27, including the player-availability adjustment that is in test until about GW18.
-- **Test whether line-ups are the missing information.** Rebuild past predictions with the actual starting XIs; only if that clearly helps is a predicted-XI model worth building.
+- **Line-ups were not the missing information.** Rebuilding past predictions with the actual starting XIs made no difference (RPS +0.0002, 95% interval −0.0022 to +0.0027), so I dropped the planned line-up model. The next suspect is stale ratings: the backtest runs are made every 3-5 gameweeks while bookmakers update daily.
 - **Test the props honestly.** Log every prop price considered, with the model's chance and the result, and judge them after 150+ prices.
-- **Move the season model from Excel into Python**, so the whole pipeline runs in one place and can be scheduled.
+- **Move the season model from Excel into Python**, so the whole pipeline runs in one place, can be scheduled, and can be backtested every gameweek over more seasons. A tail check showed the Excel season sims are overconfident before GW10, while the Python uncertainty sims are honest.

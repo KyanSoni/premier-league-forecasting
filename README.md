@@ -36,6 +36,7 @@ Built by Kyan Soni · 2025-26 and 2026-27 seasons · Excel · PostgreSQL · Pyth
             part3 ─ referees, expected minutes, player rates, team         │     tables + scoring views
                     counts, player and match markets for next gameweek     │
             odds  ─ upcoming prices → value log                          ──┘
+            + leak_check.py (leak tests) and prop_log.py (prop price log)
         │
         ▼
  Excel dashboard (ODBC + Power Query, one Refresh All)
@@ -55,7 +56,8 @@ Each week takes three commands and one Excel refresh. Every step prints **OK / C
 | **Team and match markets** | Negative binomial models for corners, fouls, cards, shots, tackles with referee and game-state effects | `team_counts.py`, `match_markets.py` |
 | **Bet builder checker** | Simulates each fixture 20,000 times so linked legs are priced together | `slip_checker.py` |
 | **Automation** | The whole weekly pipeline, checks and the value log | `weekly.py` |
-| **Model audits** | Calibration, market blend and margin removal, bootstrap significance, scoreline shape, player data vs Opta | `calibrate.py`, `market_blend.py`, `significance.py`, `scoreline_check.py`, `prop_audit.py`, `quant_tools.py` |
+| **Model audits** | Calibration, market blend and margin removal, bootstrap significance, scoreline shape, player data vs Opta, perfect-XI test, season-forecast tails, leak check | `calibrate.py`, `market_blend.py`, `significance.py`, `scoreline_check.py`, `prop_audit.py`, `xi_test.py`, `season_tails.py`, `leak_check.py`, `quant_tools.py` |
+| **Prop log** | Every prop price looked at, with the model's chance and the result, scored against the bookmaker | `prop_log.py` |
 
 ---
 
@@ -101,6 +103,10 @@ Every change was scored out of sample on two full seasons and adopted only if it
 | Bootstrap significance of every upgrade | Only the ratings blend is significant on its own | ℹ️ Ensemble kept (removing parts is equally unproven) |
 | Dixon-Coles low-score correction for the goal markets | 1-0s over-predicted, 2-2s under (z +3.6); best correction worth 0.0018 log loss | ❌ Not adopted; correlated goals noted for later |
 | Player data vs Opta | Identical totals for all four stats | ✅ No rescaling; found and fixed blank-for-zero rows in 2026-27 |
+| Knowing the actual starting XIs (perfect-information test) | RPS +0.0002 (95% interval −0.0022 to +0.0027): no help | ❌ Line-up model not built |
+| Season forecasts at the extremes (PIT, interval coverage) | Python uncertainty sims honest at every stage; Excel sims overconfident before GW10 | ⚠️ Uncertainty sims used early in the season |
+| Automatic leak check (8 tests) | All clear | ✅ Runs every week |
+| Prop price log (model vs bookmaker on the props I look at) | Collecting; verdict after 150 settled prices | 🧪 In test |
 
 Three data errors were caught by the checks and fixed: one run had been built with end-of-season ratings (a look-ahead leak that made it look better than it was: RPS 0.2035 instead of the honest 0.2176), two promoted clubs had the wrong goal totals, and in 2026-27 the player data source began leaving blanks instead of zeros.
 
@@ -157,8 +163,8 @@ The full weekly routine, with troubleshooting, is in [`docs/weekly_update_guide.
 ## Repository layout
 
 ```
-python/    the 20 scripts, requirements.txt, .env.example
-sql/       a_ (foundation, upgrades 1-6) and b_ (weekly, upgrades 7-24): tables, loads, scoring and dashboard views
+python/    the 24 scripts, requirements.txt, .env.example
+sql/       a_ (foundation, upgrades 1-6) and b_ (weekly, upgrades 7-27): tables, loads, scoring and dashboard views
 images/    charts used in this README
 docs/      write-up, upgrade log, significance table, weekly guide, upgrade guides (PDF)
 ```
