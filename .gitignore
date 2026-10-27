@@ -20,3 +20,9 @@ slip.csv
 # secrets
 .env
 *.env
+
+# derived from Opta / betting records: never published
+prop_scaling.json
+opta_sample.csv
+prop_prices_new.csv
+significance.csv

@@ -59,8 +59,18 @@ ODDS_URL = "https://www.football-data.co.uk/mmz4281/2627/E0.csv"
 NEXT_ODDS_URL = "https://www.football-data.co.uk/fixtures.csv"   # upcoming games' odds (updated Fri / Tue)
 # value log (Upgrade 17): same rule as H2H's "Value vs bookmaker" section
 VALUE_SOURCE = "b365"        # whose prices are logged and compared with the close: b365, avg or max
-VALUE_MODEL_WEIGHT = 0.5     # blended chance = weight x model + (1 - weight) x bookie's fair chance
+VALUE_MODEL_WEIGHT = 0.25     # 1X2: blended chance = weight x model + (1 - weight) x bookie's fair chance
 VALUE_FLAG_EDGE = 0.05       # VALUE when blended chance x odds - 1 is at least this
+# Upgrades 19-21 (set the first four from calibrate.py and market_blend.py's printed lines)
+CAL_POWER = 1.0              # Upgrade 19: sharpening power for the main model (1.0 = off)
+MARGIN_METHOD = "power"   # Upgrade 20: how bookie margin is removed: proportional, power or shin
+VALUE_MODEL_WEIGHT_OU = 0.0  # Upgrade 20: the same weight for over/under 2.5
+VALUE_MODEL_SOURCE = "ens_dcxg_50"      # Upgrade 20: 1X2 model chances from this source (e.g. "ens_dcxg_50");
+                             #             "" = Poisson from match_lambdas, as before
+KELLY_FRACTION = 0.25        # Upgrade 21: stake = this share of the full Kelly stake...
+MAX_STAKE_PCT = 1.0          # ...capped at this % of your betting bank per bet
+DC_RHO = 0.0                 # Upgrade 23: low-score correction for the Poisson markets (0 = off;
+                             #             scoreline_check.py prints the value to use, e.g. -0.08)
 # Understat full names -> names your team_aliases table knows (same list as make_weekly_csvs.py)
 UNDERSTAT_NAMES = {
     "Manchester City": "Man City",
@@ -404,6 +414,35 @@ def part2(label):
         print(f"ens_mkt_50 rows: {n}")
     except Exception as e:
         print(f"ensemble skipped ({type(e).__name__}: {e})")
+    # Upgrade 19: the adopted main match model (Upgrade 12) was only built by hand (block 12.5);
+    # now it is built every week, plus its calibrated version when CAL_POWER is not 1.
+    try:
+        n = sql("""INSERT INTO external_predictions (source, run_label, match_id, p_home, p_draw, p_away)
+                   SELECT 'ens_dcxg_50', m.run_label, m.match_id,
+                          ROUND(0.5*m.p_home+0.5*d.p_home, 4), ROUND(0.5*m.p_draw+0.5*d.p_draw, 4),
+                          ROUND(0.5*m.p_away+0.5*d.p_away, 4)
+                   FROM v_main_predictions m
+                   JOIN external_predictions d ON d.source = 'dc_xg' AND d.run_label = m.run_label AND d.match_id = m.match_id
+                   WHERE m.run_label = :r
+                   ON CONFLICT (source, run_label, match_id)
+                   DO UPDATE SET p_home = EXCLUDED.p_home, p_draw = EXCLUDED.p_draw, p_away = EXCLUDED.p_away""",
+                {"r": label})
+        print(f"ens_dcxg_50 rows: {n}")
+        if CAL_POWER != 1.0:
+            n = sql("""INSERT INTO external_predictions (source, run_label, match_id, p_home, p_draw, p_away)
+                       SELECT 'ens_dcxg_50_cal', run_label, match_id,
+                              ROUND((POWER(p_home, :a) / t)::NUMERIC, 4), ROUND((POWER(p_draw, :a) / t)::NUMERIC, 4),
+                              ROUND((POWER(p_away, :a) / t)::NUMERIC, 4)
+                       FROM (SELECT run_label, match_id, p_home::FLOAT8 AS p_home, p_draw::FLOAT8 AS p_draw,
+                                    p_away::FLOAT8 AS p_away,
+                                    POWER(p_home::FLOAT8, :a) + POWER(p_draw::FLOAT8, :a) + POWER(p_away::FLOAT8, :a) AS t
+                             FROM external_predictions WHERE source = 'ens_dcxg_50' AND run_label = :r) e
+                       ON CONFLICT (source, run_label, match_id)
+                       DO UPDATE SET p_home = EXCLUDED.p_home, p_draw = EXCLUDED.p_draw, p_away = EXCLUDED.p_away""",
+                    {"r": label, "a": float(CAL_POWER)})
+            print(f"ens_dcxg_50_cal rows: {n} (CAL_POWER {CAL_POWER})")
+    except Exception as e:
+        print(f"ens_dcxg_50 skipped ({type(e).__name__}: {e})")
 
     print("\nRows saved for this run:")
     sql("""SELECT source, COUNT(*) AS rows FROM external_predictions WHERE run_label = :r
@@ -502,6 +541,9 @@ def poisson_markets(lh, la):
     for i in range(11):
         for j in range(11):
             q = ph[i] * pa[j]
+            if DC_RHO and i <= 1 and j <= 1:      # Upgrade 23: Dixon-Coles correction for 0-0, 1-0, 0-1, 1-1
+                q *= {(0, 0): 1 - lh * la * DC_RHO, (0, 1): 1 + lh * DC_RHO,
+                      (1, 0): 1 + la * DC_RHO, (1, 1): 1 - DC_RHO}[(i, j)]
             if i > j:
                 h += q
             elif i == j:
@@ -519,6 +561,12 @@ def fair(odds):
     if any(o is None or o <= 1 for o in odds):
         return [None] * len(odds)
     imp = [1 / o for o in odds]
+    if MARGIN_METHOD != "proportional":          # Upgrade 20: power or Shin (quant_tools.py)
+        try:
+            import quant_tools
+            return [float(p) for p in quant_tools.fair_probs([odds], MARGIN_METHOD)[0]]
+        except Exception as e:
+            print(f"  (margin method {MARGIN_METHOD} failed: {e}; used proportional)")
     return [i / sum(imp) for i in imp]
 
 
@@ -530,20 +578,27 @@ def log_values():
         run = con.execute(text("""SELECT run_label FROM model_runs m JOIN seasons s USING (season_id)
                                   WHERE s.label = :s AND run_label LIKE '%after GW%'
                                   ORDER BY run_id DESC LIMIT 1"""), {"s": SEASON}).scalar()
-        games = con.execute(text(f"""SELECT o.match_id, l.lambda_home, l.lambda_away, {', '.join('o.' + c for c in cols)}
+        games = con.execute(text(f"""SELECT o.match_id, l.lambda_home, l.lambda_away,
+                                            e.p_home, e.p_draw, e.p_away, {', '.join('o.' + c for c in cols)}
                                      FROM next_odds o
                                      JOIN matches m ON m.match_id = o.match_id AND m.home_goals IS NULL
-                                     JOIN match_lambdas l ON l.match_id = o.match_id AND l.run_label = :r"""),
-                            {"r": run}).fetchall()
+                                     JOIN match_lambdas l ON l.match_id = o.match_id AND l.run_label = :r
+                                     LEFT JOIN external_predictions e ON e.source = :src AND e.run_label = :r
+                                                                     AND e.match_id = o.match_id"""),
+                            {"r": run, "src": VALUE_MODEL_SOURCE}).fetchall()
         n = flagged = 0
         for g in games:
-            mid, lh, la, odds = g[0], float(g[1]), float(g[2]), [None if v is None else float(v) for v in g[3:]]
+            mid, lh, la = g[0], float(g[1]), float(g[2])
+            odds = [None if v is None else float(v) for v in g[6:]]
             model = poisson_markets(lh, la)
+            if g[3] is not None:                  # Upgrade 20: 1X2 from the chosen model source
+                model[:3] = [float(g[3]), float(g[4]), float(g[5])]
             fp = fair(odds[:3]) + fair(odds[3:])
             for k, mk in enumerate(VALUE_MARKETS):
                 if odds[k] is None or fp[k] is None:
                     continue
-                blended = VALUE_MODEL_WEIGHT * model[k] + (1 - VALUE_MODEL_WEIGHT) * fp[k]
+                w = VALUE_MODEL_WEIGHT if k < 3 else VALUE_MODEL_WEIGHT_OU
+                blended = w * model[k] + (1 - w) * fp[k]
                 edge = blended * odds[k] - 1
                 flag = "VALUE" if edge >= VALUE_FLAG_EDGE else ("small" if edge >= 0 else "no")
                 con.execute(text("""INSERT INTO value_log (match_id, market, run_label, source, model_prob, fair_prob,
@@ -617,11 +672,19 @@ def make_value_views(con):
                ROUND(100 * (v.taken_odds / NULLIF(v.closing_odds, 0) - 1), 1) AS clv_pct,
                v.won,
                CASE WHEN v.won IS NULL THEN NULL WHEN v.won THEN v.taken_odds - 1 ELSE -1 END AS profit_1u,
-               v.logged_at, v.settled_at
+               v.logged_at, v.settled_at,
+               -- Upgrade 21: expected return at the closing line (your price x the closing fair chance - 1)
+               ROUND(100 * (v.taken_odds * v.closing_fair_prob - 1), 1) AS exp_roi_close_pct,
+               -- Upgrade 21: suggested stake, % of your betting bank (fractional Kelly, capped)
+               CASE WHEN v.blended_prob * v.taken_odds > 1 AND v.taken_odds > 1
+                    THEN ROUND(LEAST({KELLY_FRACTION} * 100 * (v.blended_prob * v.taken_odds - 1)
+                                     / (v.taken_odds - 1), {MAX_STAKE_PCT}), 2)
+                    ELSE 0 END AS kelly_stake_pct
         FROM value_log v
         JOIN matches m ON m.match_id = v.match_id
         JOIN teams ht ON ht.team_id = m.home_team_id
-        JOIN teams at ON at.team_id = m.away_team_id"""))
+        JOIN teams at ON at.team_id = m.away_team_id""".format(KELLY_FRACTION=float(KELLY_FRACTION),
+                                                             MAX_STAKE_PCT=float(MAX_STAKE_PCT))))
     con.execute(text("""CREATE OR REPLACE VIEW v_value_summary AS
         SELECT g.grp AS flag_group,
                COUNT(*) AS prices_logged,
@@ -635,7 +698,28 @@ def make_value_views(con):
                ROUND(100.0 * AVG(1 / v.taken_odds) FILTER (WHERE v.won IS NOT NULL), 1) AS odds_implied_pct,
                ROUND(SUM(CASE WHEN v.won THEN v.taken_odds - 1 WHEN NOT v.won THEN -1 END), 2) AS profit_1u,
                ROUND(100 * SUM(CASE WHEN v.won THEN v.taken_odds - 1 WHEN NOT v.won THEN -1 END)
-                     / NULLIF(COUNT(*) FILTER (WHERE v.won IS NOT NULL), 0), 1) AS roi_pct
+                     / NULLIF(COUNT(*) FILTER (WHERE v.won IS NOT NULL), 0), 1) AS roi_pct,
+               -- Upgrade 21: the closing-line test. exp_roi = your price x closing fair chance - 1,
+               -- averaged; t_stat = average / its standard error (about 2 or more = real, not luck)
+               ROUND(100 * AVG(v.taken_odds * v.closing_fair_prob - 1)
+                     FILTER (WHERE v.closing_fair_prob IS NOT NULL), 2) AS exp_roi_close_pct,
+               ROUND((AVG(v.taken_odds * v.closing_fair_prob - 1) FILTER (WHERE v.closing_fair_prob IS NOT NULL)
+                     / NULLIF(STDDEV_SAMP(v.taken_odds * v.closing_fair_prob - 1)
+                              FILTER (WHERE v.closing_fair_prob IS NOT NULL)
+                              / SQRT(COUNT(*) FILTER (WHERE v.closing_fair_prob IS NOT NULL)), 0))::NUMERIC, 2) AS t_stat,
+               CASE WHEN COUNT(*) FILTER (WHERE v.closing_fair_prob IS NOT NULL) < 100
+                         THEN 'too few yet (need 100+ settled)'
+                    WHEN AVG(v.taken_odds * v.closing_fair_prob - 1) FILTER (WHERE v.closing_fair_prob IS NOT NULL)
+                         / NULLIF(STDDEV_SAMP(v.taken_odds * v.closing_fair_prob - 1)
+                                  FILTER (WHERE v.closing_fair_prob IS NOT NULL)
+                                  / SQRT(COUNT(*) FILTER (WHERE v.closing_fair_prob IS NOT NULL)), 0) >= 2
+                         THEN 'beating the close'
+                    WHEN AVG(v.taken_odds * v.closing_fair_prob - 1) FILTER (WHERE v.closing_fair_prob IS NOT NULL)
+                         / NULLIF(STDDEV_SAMP(v.taken_odds * v.closing_fair_prob - 1)
+                                  FILTER (WHERE v.closing_fair_prob IS NOT NULL)
+                                  / SQRT(COUNT(*) FILTER (WHERE v.closing_fair_prob IS NOT NULL)), 0) <= -2
+                         THEN 'losing to the close'
+                    ELSE 'no clear edge yet' END AS verdict
         FROM value_log v
         CROSS JOIN LATERAL (VALUES (v.flag), ('All prices')) g(grp)
         GROUP BY g.grp
@@ -765,7 +849,7 @@ def check(label):
         ratings = one("""SELECT COUNT(*) FROM team_ratings t JOIN model_runs m USING (run_id) WHERE m.run_label = :r""", p)
         sims = one("""SELECT COUNT(*) FROM sim_results t JOIN model_runs m USING (run_id) WHERE m.run_label = :r""", p)
         mark(ratings == 20 and sims == 20000, f"part2: run has {ratings} ratings (20) and {sims} sims (20000)")
-        for src in ("dixon_coles", "market", "ens_mkt_50", "pi_ratings", "dc_xg"):
+        for src in ("dixon_coles", "market", "ens_mkt_50", "pi_ratings", "dc_xg", "ens_dcxg_50"):
             k = one("SELECT COUNT(*) FROM external_predictions WHERE source = :x AND run_label = :r", {**p, "x": src})
             mark(k == 380, f"part2: {src} {k} predictions (380)")
         av = one("SELECT COUNT(*) FROM availability_snapshots WHERE run_label = :r", p)

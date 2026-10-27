@@ -1,0 +1,10 @@
+upgrade,old,new,predictions,matches,RPS old,RPS new,RPS change,95% low,95% high,p,change 2024-25,change 2025-26,log loss change,verdict
+1. Home advantage,base,home_adv,3585,700,0.2271,0.2253,-0.0018,-0.0062,0.0023,0.3756,-0.0002,-0.0035,-0.0037,could be luck
+2. Blend ratings,home_adv,blend_15,3585,700,0.2253,0.2127,-0.0126,-0.0174,-0.0076,0.0002,-0.0087,-0.0165,-0.0494,real gain
+5. xG ratings,blend_15,xg_50,3585,700,0.2127,0.2112,-0.0015,-0.004,0.001,0.222,0.0006,-0.0037,-0.0031,could be luck
+6. Dixon-Coles alone,xg_50,dixon_coles,3585,700,0.2112,0.2125,0.0014,-0.0022,0.0049,0.4404,0.0027,0.0,0.0027,could be luck
+9. Ensemble with Dixon-Coles,xg_50,ens_dc_25,3585,700,0.2112,0.2108,-0.0004,-0.0013,0.0005,0.3536,-0.0002,-0.0007,-0.0017,could be luck
+10. Market-implied ensemble,ens_dc_25,ens_mkt_50,3585,700,0.2108,0.2111,0.0004,-0.0007,0.0014,0.5324,0.0012,-0.0005,0.0022,could be luck
+12. Ensemble with DC on xG,ens_dc_25,ens_dcxg_50,3585,700,0.2108,0.2103,-0.0004,-0.0015,0.0006,0.418,-0.0006,-0.0003,-0.0003,could be luck
+13. Squad value (promoted),xg_50,value_prom_50,3585,700,0.2112,0.2111,-0.0001,-0.0003,0.0001,0.39,-0.0001,-0.0001,-0.0002,could be luck
+Gap to the bookmakers,ens_dcxg_50,bookmaker,3585,700,0.2103,0.2032,-0.0071,-0.012,-0.0022,0.006,-0.0089,-0.0053,-0.0228,real gain

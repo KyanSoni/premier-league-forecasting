@@ -78,9 +78,11 @@ The single biggest gain came from the simplest idea. Early in a season, the curr
 
 ## Where the model falls short of the bookmakers
 
-The remaining gap has a pattern. Compared with the market, the model is flatter: it gives favourites a little too little and underdogs a little too much. It is also slow to trust big clubs that start a season badly. Bookmakers price in team news, transfers and fitness, which a ratings model learns only after results arrive.
+I first suspected the model was too flat, giving favourites too little and underdogs too much. A calibration test (Upgrade 19) said otherwise: sharpening the probabilities, fitted on one season and tested on the other, made no difference. The model is calibrated; it simply knows less. A bootstrap test (Upgrade 22) confirmed the gap to the closing odds is real (0.0071 RPS, 95% interval 0.0022 to 0.0120) and larger than every upgrade after the ratings blend put together. Bookmakers price in team news, transfers and fitness, which a ratings model learns only after results arrive.
 
-That is also why I built a value tracker rather than claiming the model finds value. Each week it logs every price for the next gameweek with three numbers: the model's chance, the bookmaker's fair chance (with the margin removed) and a 50/50 blend of the two. Prices where the blended chance gives an edge of 5% or more are flagged. After the games, the tracker records the closing odds and the result, so it measures two things: whether flagged prices beat the closing line, and whether they won. It started in October 2026. I will report it once more than 100 prices have settled, whatever it shows.
+That is also why I built a value tracker rather than claiming the model finds value. Each week it logs every price for the next gameweek with the model's chance, the bookmaker's fair chance (margin removed) and a blend of the two, and flags prices with an edge of 5% or more. After the games it records the closing odds and the result.
+
+Before trusting it, I replayed the flag on every match of two seasons (Upgrade 20). The answer was clear: flagged prices lost about 10% against the closing line at every blend weight, with t-statistics below −3. When the model disagrees strongly with the market, the market is usually right. The fitted weight for the model is 25% for match results and 0% for goal totals, and the tracker now reports expected return at the closing line with a t-statistic and a verdict once 100 prices have settled. The honest conclusion is that this model has no betting edge on match results or goals.
 
 ## What didn't work
 
@@ -101,9 +103,13 @@ The checks also caught two mistakes of my own. One backtest run had been built w
 
 I built the project with Claude as a development partner for Python and SQL. That made it possible to build a large system quickly. It also made testing more important, not less. The automated checks caught errors in AI-written code. In the first live week, for example, they caught doubtful players being given a 94% chance to start when the injury feed said 25%, which was then fixed in `player_minutes.py`. The modelling choices, the testing rules and the decisions to adopt or reject were mine.
 
+## Checking the measurements
+
+Player props looked consistently 10-25 points cheaper at the bookmaker than in the model, so I checked whether my player data counts the same things as Opta, which bookmakers settle on. A sample of 20 matches (607 players) from FotMob matched my data exactly for fouls, times fouled, shots and shots on target. The check did find one real problem: from 2026-27 the player data source left blanks instead of zeros, which would have quietly dropped every "no shots" game from the backtests. It was fixed at the source and in the database.
+
 ## What's next
 
 - **Season-end review.** Re-score all of 2026-27, including the player-availability adjustment that is in test until about GW18.
-- **Close more of the gap with information, not cleverness.** Use confirmed line-ups an hour before kick-off and blend in the market's opening prices.
-- **Judge the value tracker on closing-line value**, which shows whether the model is finding real edges well before results can.
+- **Test whether line-ups are the missing information.** Rebuild past predictions with the actual starting XIs; only if that clearly helps is a predicted-XI model worth building.
+- **Test the props honestly.** Log every prop price considered, with the model's chance and the result, and judge them after 150+ prices.
 - **Move the season model from Excel into Python**, so the whole pipeline runs in one place and can be scheduled.

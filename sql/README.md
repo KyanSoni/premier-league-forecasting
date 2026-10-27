@@ -31,5 +31,6 @@ Scripts 08–09 were never created, so the numbering skips them.
 | 29 | Upgrade 15: player and team match data, expected minutes, rates, markets and their tests |
 | 30 | Upgrade 15: summary and dashboard views (market tests, calibration, player card, fixture card, last-5 hit rates) |
 | 31 | Upgrade 17: upcoming odds and the value tracker (a reference copy, because `weekly.py` creates these itself) |
+| 32 | Upgrades 19–24: read-only checks for calibration, the market blend, the closing-line test and the player-market rescaling (the tables are made by the Python scripts) |
 
 The two folders reuse the numbers 20–23. Folder **b** started a new numbered series once the weekly pipeline began.

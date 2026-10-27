@@ -51,6 +51,7 @@ from player_minutes import to_numbers
 OWN_GOAL_SHARE = 0.03
 SETTINGS_FILE = "player_markets_settings.json"
 CAL_FILE = "player_markets_calibration.json"
+SCALE_FILE = "prop_scaling.json"      # Upgrade 24 (prop_audit.py): Opta / your-data count ratios
 NO_CAL = {"red"}       # too rare to fit a calibration
 ALPHAS = [0.0, 0.25, 0.5, 0.75, 1.0]   # how much of the team/opponent scaling to use (1 = all)
 # stat: (rate column from 15.3, line used to choose ALPHA)
@@ -140,10 +141,11 @@ def mixture(k, intensity_90, p_start, p_sub, m_start, m_sub):
     return np.where(play > 0, out, np.nan)
 
 
-def mixture_cal(k, intensity_90, p_start, p_sub, m_start, m_sub, cal):
+def mixture_cal(k, intensity_90, p_start, p_sub, m_start, m_sub, cal, scale=1.0):
     """Like mixture(), after calibration: his expected count if he plays, m, becomes c x m^g
     (g below 1 pulls extreme players back towards the middle), and counts are negative binomial
     with dispersion r (players have good and bad days beyond Poisson luck).
+    scale (Upgrade 24): multiplies the calibrated count, to move it onto the bookmakers' (Opta) scale.
     Returns (chance of k or more given he plays, calibrated expected count if he plays)."""
     r, c, g = cal
     play = p_start + p_sub
@@ -151,10 +153,10 @@ def mixture_cal(k, intensity_90, p_start, p_sub, m_start, m_sub, cal):
         ls, lb = intensity_90 * m_start / 90, intensity_90 * m_sub / 90
         m = (p_start * ls + p_sub * lb) / play
         f = np.where(m > 0, c * np.power(np.maximum(m, 1e-9), g - 1), 1.0)
-        ls, lb = ls * f, lb * f
+        ls, lb = ls * f * scale, lb * f * scale
         tail = lambda lam: 1 - nbinom.cdf(k - 1, r, r / (r + lam))
         out = (p_start * tail(ls) + p_sub * tail(lb)) / play
-    return np.where(play > 0, out, np.nan), m * f
+    return np.where(play > 0, out, np.nan), m * f * scale
 
 
 def fit_calibration(market, lines, i_model, dd, actual):
@@ -397,6 +399,11 @@ def build(mode):
         print("Calibrating each market (r = spread, c = level, g = how far to pull extremes in; fitted on 2024-25):")
     else:
         cals = json.load(open(CAL_FILE)) if os.path.exists(CAL_FILE) else {}
+    # Upgrade 24: Opta / your-data scaling from prop_audit.py, upcoming games only
+    prop_scale = {}
+    if mode != "backtest" and os.path.exists(SCALE_FILE):
+        prop_scale = json.load(open(SCALE_FILE))
+        print(f"  Opta scaling applied (prop_scaling.json): {prop_scale}")
     for market, (parts, act_parts, lines) in MARKETS.items():
         sel = (d["position"] == "Goalkeeper") if market == "saves" else pd.Series(True, index=d.index)
         dd = d[sel]
@@ -409,7 +416,8 @@ def build(mode):
             cals[market] = fit_calibration(market, lines, i_model, dd, actual)
         cal = cals.get(market, [1e6, 1.0, 1.0])
         for k in lines:
-            prob, exp_cal = mixture_cal(k, i_model.values, s_ps, s_pb, s_ms, s_mb, cal)
+            prob, exp_cal = mixture_cal(k, i_model.values, s_ps, s_pb, s_ms, s_mb, cal,
+                                        prop_scale.get(market, 1.0))
             rows.append(pd.DataFrame({
                 "run_label": dd["run_label"], "season": dd["season"], "gameweek": dd["gameweek"], "mode": mode,
                 "match_id": dd["match_id"], "team_id": dd["team_id"], "player_code": dd["player_code"],

@@ -262,6 +262,10 @@ def fci_season(season, refresh):
     unmatched = pm["player_code"].isna().sum()
     pm = pm[pm["player_code"].notna() & (pm["minutes"].fillna(0) > 0)]
     pm["player_code"] = pm["player_code"].astype(int)
+    # Upgrade 24: from 2026-27 FPL-Core-Insights leaves these blank instead of 0 for players who
+    # played; a blank was dropped from the backtests, so store 0
+    for c in ("goals", "assists", "shots", "shots_on_target", "fouls_committed", "was_fouled", "tackles", "saves"):
+        pm[c] = pd.to_numeric(pm[c], errors="coerce").fillna(0)
 
     # ---- current season FPL gameweek stats (cards etc.)
     fpl = None

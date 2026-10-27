@@ -11,10 +11,12 @@ Built by Kyan Soni · 2025-26 and 2026-27 seasons · Excel · PostgreSQL · Pyth
 | | Result | Evidence |
 |---|---|---|
 | **Match predictions** | Ranked Probability Score (RPS) improved from **0.2271 to 0.2103 (−7.4%)**, cutting the gap to the bookmakers' closing odds from **11.8% to 3.5%** | 3,595 out-of-sample matches, 2024-25 and 2025-26 |
+| **Is it real?** | Bootstrap 95% intervals on every upgrade: the ratings blend is a proven gain (RPS **−0.0126**, interval −0.0174 to −0.0076); each later upgrade is within ±0.002 and not significant on its own. The gap to the bookmakers is real: **0.0071** (0.0022 to 0.0120) | 700 matches, paired bootstrap by match ([`upgrade_significance.csv`](docs/upgrade_significance.csv)) |
 | **League table** | Average error in predicted finishing position fell from **3.94 places pre-season to 1.94 by GW22 and 1.15 by GW34** | 2025-26, scored against the final table |
 | **Player and match markets** | **117 of 126** market lines beat a simple baseline in 2024-25, **110 of 126** in 2025-26 | Brier score, every line predicted before kick-off |
 | **Bet builders** | Simulating linked legs together matched reality: win + scorer hit **20.8%** vs **21.8%** simulated, against **15.7%** if the legs are just multiplied | Every fixture in 2024-25 |
-| **Value tracker** | Every flagged price is logged and later compared with the closing odds and the result | Live from GW7 2026-27; results added once 100+ prices have settled |
+| **Betting edge** | Replayed on two seasons, prices the model flagged as value **lost about 10% against the closing line** at every model weight (t-stat below −3). The model's weight against the market was cut from 50% to the fitted 25%, and the live tracker now reports expected return at the close with a t-stat | Every match of 2024-25 and 2025-26; live tracker from GW7 2026-27 |
+| **Player data** | Player fouls, times fouled, shots and shots on target match Opta exactly (607 players, 20 matches), so player markets are on the bookmakers' scale | FotMob sample vs the project's data |
 
 ![2026-27 title race](images/title_race.png)
 
@@ -53,6 +55,7 @@ Each week takes three commands and one Excel refresh. Every step prints **OK / C
 | **Team and match markets** | Negative binomial models for corners, fouls, cards, shots, tackles with referee and game-state effects | `team_counts.py`, `match_markets.py` |
 | **Bet builder checker** | Simulates each fixture 20,000 times so linked legs are priced together | `slip_checker.py` |
 | **Automation** | The whole weekly pipeline, checks and the value log | `weekly.py` |
+| **Model audits** | Calibration, market blend and margin removal, bootstrap significance, scoreline shape, player data vs Opta | `calibrate.py`, `market_blend.py`, `significance.py`, `scoreline_check.py`, `prop_audit.py`, `quant_tools.py` |
 
 ---
 
@@ -60,7 +63,7 @@ Each week takes three commands and one Excel refresh. Every step prints **OK / C
 
 ![Match model vs bookmakers](images/model_comparison.png)
 
-The original model was 11.8% behind the bookmakers. The biggest single gain was blending pre-season and current ratings (Upgrade 2); the rest came from xG ratings and an ensemble with Dixon-Coles models. The remaining 3.5% gap is mostly information the bookmakers price in and a ratings model cannot see, such as team news and transfers.
+The original model was 11.8% behind the bookmakers. The biggest single gain was blending pre-season and current ratings (Upgrade 2); the rest came from xG ratings and an ensemble with Dixon-Coles models. The remaining 3.5% gap is mostly information the bookmakers price in and a ratings model cannot see, such as team news and transfers. Upgrade 19 backed this up: the model's probabilities are already well calibrated (sharpening them did not help out of sample), so the gap is not a scaling problem.
 
 ![League table forecast error](images/position_error.png)
 
@@ -91,8 +94,15 @@ Every change was scored out of sample on two full seasons and adopted only if it
 | Referee factor for red cards | No gain | ❌ Dropped (kept for fouls) |
 | Match corners and red card markets | Tie with the league-average baseline | ⚠️ Shown but flagged "no better than average" |
 | Player injuries and suspensions (FPL) | Can only be tested going forward | 🧪 In test until about GW18 |
+| Calibration layer (sharpening power) | Fitted powers disagreed between seasons (1.09, 0.98); RPS ±0.0002, log loss worse | ❌ Not needed: already calibrated |
+| Fitted model/market blend and power margin removal | Model weight 0.25 for 1X2, 0 for over/under 2.5 (was 50/50) | ✅ Kept |
+| Value flags judged against the closing line | −6% to −12% expected return at every weight | ⚠️ No edge on 1X2 or goals: flags are for review, not bets |
+| Closing-line test, t-stat and quarter-Kelly stakes in the tracker | Verdict after 100 settled prices | ✅ Kept |
+| Bootstrap significance of every upgrade | Only the ratings blend is significant on its own | ℹ️ Ensemble kept (removing parts is equally unproven) |
+| Dixon-Coles low-score correction for the goal markets | 1-0s over-predicted, 2-2s under (z +3.6); best correction worth 0.0018 log loss | ❌ Not adopted; correlated goals noted for later |
+| Player data vs Opta | Identical totals for all four stats | ✅ No rescaling; found and fixed blank-for-zero rows in 2026-27 |
 
-Two data errors were caught by the checks and fixed: one run had been built with end-of-season ratings (a look-ahead leak that made it look better than it was: RPS 0.2035 instead of the honest 0.2176), and two promoted clubs had the wrong goal totals.
+Three data errors were caught by the checks and fixed: one run had been built with end-of-season ratings (a look-ahead leak that made it look better than it was: RPS 0.2035 instead of the honest 0.2176), two promoted clubs had the wrong goal totals, and in 2026-27 the player data source began leaving blanks instead of zeros.
 
 ---
 
@@ -147,10 +157,10 @@ The full weekly routine, with troubleshooting, is in [`docs/weekly_update_guide.
 ## Repository layout
 
 ```
-python/    the 14 scripts, requirements.txt, .env.example
-sql/       a_ (foundation, upgrades 1-6) and b_ (weekly, upgrades 7-17): tables, loads, scoring and dashboard views
+python/    the 20 scripts, requirements.txt, .env.example
+sql/       a_ (foundation, upgrades 1-6) and b_ (weekly, upgrades 7-24): tables, loads, scoring and dashboard views
 images/    charts used in this README
-docs/      write-up, upgrade log, weekly guide, upgrade guides (PDF)
+docs/      write-up, upgrade log, significance table, weekly guide, upgrade guides (PDF)
 ```
 
 📄 **Full write-up:** [`docs/writeup.md`](docs/writeup.md) — the question, data, models, how each change was tested, results against the bookmakers, what didn't work and what's next.
